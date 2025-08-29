@@ -1,0 +1,404 @@
+# Makefile pour Quadlock Encrypt
+# Usage: make [target]
+
+PYTHON = python3
+VENV = quadlock_env
+VENV_BIN = $(VENV)/bin
+PIP = $(VENV_BIN)/pip
+PYTHON_VENV = $(VENV_BIN)/python
+
+.PHONY: help install test clean setup dev lint format security audit package docs
+
+# Cible par défaut
+help:
+	@echo "🔐 Quadlock Encrypt - Makefile"
+	@echo "=============================="
+	@echo ""
+	@echo "Cibles disponibles:"
+	@echo "  install    - Installation complète avec dépendances"
+	@echo "  setup      - Configuration initiale (première utilisation)"
+	@echo "  test       - Exécution des tests complets"
+	@echo "  dev        - Installation pour développement"
+	@echo "  clean      - Nettoyage des fichiers temporaires"
+	@echo "  lint       - Vérification du code (pylint, flake8)"
+	@echo "  format     - Formatage automatique du code (black)"
+	@echo "  security   - Audit de sécurité (bandit)"
+	@echo "  audit      - Audit des dépendances (pip-audit)"
+	@echo "  package    - Création d'un package de distribution"
+	@echo "  docs       - Génération de la documentation"
+	@echo "  benchmark  - Tests de performance"
+	@echo ""
+	@echo "Exemples:"
+	@echo "  make install    # Installation complète"
+	@echo "  make test      # Tests rapides"
+	@echo "  make clean     # Nettoyage"
+
+# Installation complète
+install: $(VENV)/pyvenv.cfg
+	@echo "📦 Installation des dépendances..."
+	$(PIP) install --upgrade pip
+	$(PIP) install -r requirements.txt
+	@chmod +x *.sh
+	@echo "✅ Installation terminée!"
+
+# Création de l'environnement virtuel
+$(VENV)/pyvenv.cfg:
+	@echo "🏗️  Création de l'environnement virtuel..."
+	$(PYTHON) -m venv $(VENV)
+
+# Configuration initiale
+setup: install
+	@echo "⚙️  Configuration initiale..."
+	$(PYTHON_VENV) quadlock_encrypt.py config --create
+	@echo "🧪 Exécution du test initial..."
+	@./test_quadlock.sh
+	@echo "✅ Configuration terminée!"
+
+# Tests complets
+test:
+	@echo "🧪 Exécution des tests..."
+	@./test_quadlock.sh
+	@echo "🔍 Test d'intégrité..."
+	@./verify_integrity.sh
+	@echo "📊 Tests de performance basiques..."
+	@$(PYTHON_VENV) -c "
+import time
+import secrets
+from quadlock_encrypt import QuadlockApp
+app = QuadlockApp()
+data = secrets.token_bytes(1024*1024)  # 1MB
+with open('test_perf.bin', 'wb') as f:
+    f.write(data)
+start = time.time()
+app.encrypt_file('test_perf.bin', 'testpassword123')
+encrypt_time = time.time() - start
+print(f'⏱️  Chiffrement 1MB: {encrypt_time:.2f}s')
+import os
+os.remove('test_perf.bin')
+if os.path.exists('test_perf.bin.qlk'):
+    os.remove('test_perf.bin.qlk')
+if os.path.exists('test_perf.bin.shares'):
+    os.remove('test_perf.bin.shares')
+"
+
+# Installation pour développement
+dev: install
+	$(PIP) install pylint flake8 black bandit pip-audit pytest coverage
+	@echo "🛠️  Environnement de développement prêt!"
+
+# Vérification du code
+lint:
+	@echo "🔍 Analyse statique du code..."
+	$(VENV_BIN)/pylint quadlock_encrypt.py --disable=C0103,R0903,W0613 || true
+	$(VENV_BIN)/flake8 quadlock_encrypt.py --max-line-length=100 --ignore=E203,W503 || true
+	@echo "✅ Analyse terminée!"
+
+# Formatage du code
+format:
+	@echo "🎨 Formatage du code..."
+	$(VENV_BIN)/black quadlock_encrypt.py --line-length=100
+	@echo "✅ Formatage terminé!"
+
+# Audit de sécurité
+security:
+	@echo "🔒 Audit de sécurité du code..."
+	$(VENV_BIN)/bandit -r . -f json -o security_report.json || true
+	$(VENV_BIN)/bandit -r . || true
+	@echo "✅ Audit de sécurité terminé!"
+
+# Audit des dépendances
+audit:
+	@echo "🔍 Audit des dépendances..."
+	$(VENV_BIN)/pip-audit --format=json --output=dependencies_audit.json || true
+	$(VENV_BIN)/pip-audit || true
+	@echo "✅ Audit des dépendances terminé!"
+
+# Nettoyage
+clean:
+	@echo "🧹 Nettoyage..."
+	rm -rf __pycache__/
+	rm -rf *.pyc
+	rm -rf .pytest_cache/
+	rm -rf build/
+	rm -rf dist/
+	rm -rf *.egg-info/
+	rm -f test_*.txt test_*.qlk test_*.shares test_*_decrypted
+	rm -f *.json.bak
+	rm -f security_report.json dependencies_audit.json
+	@echo "✅ Nettoyage terminé!"
+
+# Nettoyage complet (inclut l'environnement virtuel)
+distclean: clean
+	rm -rf $(VENV)/
+	@echo "🗑️  Nettoyage complet terminé!"
+
+# Création d'un package de distribution
+package:
+	@echo "📦 Création du package de distribution..."
+	@mkdir -p dist/quadlock-encrypt
+	@cp quadlock_encrypt.py dist/quadlock-encrypt/
+	@cp *.sh dist/quadlock-encrypt/
+	@cp requirements.txt dist/quadlock-encrypt/
+	@cp default_config.json dist/quadlock-encrypt/
+	@cp README.md dist/quadlock-encrypt/ 2>/dev/null || echo "README.md non trouvé"
+	@cp LICENSE dist/quadlock-encrypt/ 2>/dev/null || echo "LICENSE non trouvé"
+	@cd dist && tar -czf quadlock-encrypt-$(shell date +%Y%m%d).tar.gz quadlock-encrypt/
+	@echo "✅ Package créé: dist/quadlock-encrypt-$(shell date +%Y%m%d).tar.gz"
+
+# Génération de la documentation
+docs:
+	@echo "📚 Génération de la documentation..."
+	@$(PYTHON_VENV) -c "
+import quadlock_encrypt
+import inspect
+import json
+
+# Extraction automatique de la documentation des fonctions
+app = quadlock_encrypt.QuadlockApp()
+crypto = quadlock_encrypt.QuadlockCrypto()
+
+doc = {
+    'QuadlockApp': {
+        'methods': [method for method in dir(app) if not method.startswith('_')],
+        'docstring': app.__class__.__doc__
+    },
+    'QuadlockCrypto': {
+        'methods': [method for method in dir(crypto) if not method.startswith('_')],
+        'docstring': crypto.__class__.__doc__
+    }
+}
+
+with open('api_documentation.json', 'w') as f:
+    json.dump(doc, f, indent=2)
+    
+print('📄 Documentation API générée: api_documentation.json')
+"
+
+# Tests de performance
+benchmark:
+	@echo "⚡ Tests de performance..."
+	@$(PYTHON_VENV) -c "
+import time
+import secrets
+import os
+from quadlock_encrypt import QuadlockApp
+
+app = QuadlockApp()
+sizes = [1024, 10240, 102400, 1048576]  # 1KB, 10KB, 100KB, 1MB
+
+print('📊 Benchmarks de chiffrement:')
+print('Taille\\t\\tChiffrement\\tDéchiffrement')
+print('-' * 50)
+
+for size in sizes:
+    # Création du fichier de test
+    data = secrets.token_bytes(size)
+    filename = f'bench_{size}.bin'
+    with open(filename, 'wb') as f:
+        f.write(data)
+    
+    # Test de chiffrement
+    start = time.time()
+    app.encrypt_file(filename, 'benchpassword123')
+    encrypt_time = time.time() - start
+    
+    # Test de déchiffrement
+    with open(filename + '.shares', 'r') as f:
+        lines = f.readlines()
+    shares = [line.split(': ')[1].strip() for line in lines if line.startswith('Part')][:3]
+    
+    start = time.time()
+    app.decrypt_file(filename + '.qlk', shares)
+    decrypt_time = time.time() - start
+    
+    # Formatage de la taille
+    if size < 1024:
+        size_str = f'{size}B'
+    elif size < 1048576:
+        size_str = f'{size//1024}KB'
+    else:
+        size_str = f'{size//1048576}MB'
+    
+    print(f'{size_str}\\t\\t{encrypt_time:.3f}s\\t\\t{decrypt_time:.3f}s')
+    
+    # Nettoyage
+    os.remove(filename)
+    os.remove(filename + '.qlk')
+    os.remove(filename + '.shares')
+    if os.path.exists(filename + '_decrypted'):
+        os.remove(filename + '_decrypted')
+"
+
+# Installation rapide pour CI/CD
+install-ci:
+	$(PYTHON) -m pip install --upgrade pip
+	$(PYTHON) -m pip install -r requirements.txt
+
+# Tests pour CI/CD
+test-ci:
+	$(PYTHON) quadlock_encrypt.py config --create
+	echo "Test CI/CD" > test_ci.txt
+	$(PYTHON) quadlock_encrypt.py encrypt test_ci.txt --password "citest123"
+	@if [ -f "test_ci.txt.qlk" ]; then echo "✅ Test CI chiffrement OK"; else echo "❌ Test CI chiffrement ÉCHEC"; exit 1; fi
+	rm -f test_ci.txt test_ci.txt.qlk test_ci.txt.shares
+
+# Vérification des prérequis
+check-deps:
+	@echo "🔍 Vérification des prérequis..."
+	@$(PYTHON) --version || (echo "❌ Python non installé"; exit 1)
+	@$(PYTHON) -c "import sys; print(f'Python {sys.version_info.major}.{sys.version_info.minor}'); assert sys.version_info >= (3,7)" || (echo "❌ Python 3.7+ requis"; exit 1)
+	@which pip > /dev/null || (echo "❌ pip non installé"; exit 1)
+	@echo "✅ Prérequis OK"
+
+# Installation complète avec vérifications
+install-full: check-deps install setup
+	@echo "🎉 Installation complète terminée!"
+
+# Démarrage rapide
+quick-start:
+	@echo "🚀 Démarrage rapide Quadlock Encrypt"
+	@echo "====================================="
+	@echo ""
+	@echo "1. Créer un fichier de test:"
+	@echo "   echo 'Document secret' > secret.txt"
+	@echo ""
+	@echo "2. Chiffrer le fichier:"
+	@echo "   ./quadlock.sh encrypt secret.txt --password 'monmotdepasse'"
+	@echo ""
+	@echo "3. Déchiffrer le fichier:"
+	@echo "   ./quadlock.sh decrypt secret.txt.qlk --shares part1 part2 part3"
+	@echo ""
+	@echo "4. Aide complète:"
+	@echo "   ./quadlock.sh --help"
+
+# Installation pour serveur (sans interface)
+install-server: $(VENV)/pyvenv.cfg
+	$(PIP) install --upgrade pip
+	$(PIP) install -r requirements.txt
+	@chmod +x quadlock_encrypt.py
+	@echo "🖥️  Installation serveur terminée!"
+
+# Export des variables d'environnement
+export:
+	@echo "# Variables d'environnement Quadlock"
+	@echo "export QUADLOCK_PATH=$(PWD)"
+	@echo "export QUADLOCK_VENV=$(PWD)/$(VENV)"
+	@echo "export PATH=$(PWD):$PATH"
+
+# Vérification de la sécurité des configurations
+check-security:
+	@echo "🔒 Vérification de la sécurité des configurations..."
+	@$(PYTHON_VENV) -c "
+import json
+import os
+
+configs = ['default_config.json', 'quadlock_config.json']
+security_issues = []
+
+for config_file in configs:
+    if os.path.exists(config_file):
+        with open(config_file, 'r') as f:
+            config = json.load(f)
+        
+        print(f'📄 Analyse de {config_file}:')
+        
+        # Vérifications de sécurité
+        if config.get('pbkdf2_iterations', 0) < 50000:
+            security_issues.append(f'{config_file}: Itérations PBKDF2 trop faibles')
+            print('  ⚠️  Itérations PBKDF2 < 50000 (recommandé: 100000+)')
+        else:
+            print('  ✅ Itérations PBKDF2 OK')
+            
+        if config.get('salt_size', 0) < 16:
+            security_issues.append(f'{config_file}: Taille de sel insuffisante')
+            print('  ⚠️  Taille de sel < 16 bytes (recommandé: 32+)')
+        else:
+            print('  ✅ Taille de sel OK')
+            
+        if config.get('shamir_threshold', 0) < 2:
+            security_issues.append(f'{config_file}: Seuil Shamir trop faible')
+            print('  ⚠️  Seuil Shamir < 2 (recommandé: 3+)')
+        else:
+            print('  ✅ Seuil Shamir OK')
+            
+        if len(config.get('algorithms', [])) < 2:
+            security_issues.append(f'{config_file}: Trop peu d\\'algorithmes')
+            print('  ⚠️  < 2 algorithmes (recommandé: 3+)')
+        else:
+            print('  ✅ Nombre d\\'algorithmes OK')
+        
+        print()
+
+if security_issues:
+    print('❌ Problèmes de sécurité détectés:')
+    for issue in security_issues:
+        print(f'  - {issue}')
+    exit(1)
+else:
+    print('✅ Toutes les configurations sont sécurisées!')
+"
+
+# Tests de stress
+stress-test:
+	@echo "🔥 Tests de stress..."
+	@$(PYTHON_VENV) -c "
+import os
+import time
+import secrets
+from concurrent.futures import ThreadPoolExecutor
+from quadlock_encrypt import QuadlockApp
+
+def encrypt_decrypt_cycle(file_id):
+    app = QuadlockApp()
+    filename = f'stress_{file_id}.bin'
+    
+    # Données aléatoires
+    data = secrets.token_bytes(10240)  # 10KB
+    with open(filename, 'wb') as f:
+        f.write(data)
+    
+    try:
+        # Chiffrement
+        app.encrypt_file(filename, f'password{file_id}')
+        
+        # Lecture des parts
+        with open(filename + '.shares', 'r') as f:
+            lines = f.readlines()
+        shares = [line.split(': ')[1].strip() for line in lines if line.startswith('Part')][:3]
+        
+        # Déchiffrement
+        app.decrypt_file(filename + '.qlk', shares)
+        
+        return True
+    except Exception as e:
+        print(f'❌ Erreur cycle {file_id}: {e}')
+        return False
+    finally:
+        # Nettoyage
+        for ext in ['', '.qlk', '.shares', '_decrypted']:
+            try:
+                os.remove(filename + ext)
+            except:
+                pass
+
+print('⚡ Démarrage des tests de stress (10 cycles parallèles)...')
+start_time = time.time()
+
+with ThreadPoolExecutor(max_workers=5) as executor:
+    results = list(executor.map(encrypt_decrypt_cycle, range(10)))
+
+end_time = time.time()
+success_rate = sum(results) / len(results) * 100
+
+print(f'📊 Résultats du stress test:')
+print(f'  - Cycles réussis: {sum(results)}/{len(results)}')
+print(f'  - Taux de succès: {success_rate:.1f}%')
+print(f'  - Temps total: {end_time - start_time:.2f}s')
+print(f'  - Temps moyen/cycle: {(end_time - start_time)/len(results):.2f}s')
+
+if success_rate < 100:
+    print('⚠️  Certains cycles ont échoué!')
+    exit(1)
+else:
+    print('✅ Tous les cycles de stress ont réussi!')
+"
